@@ -1,0 +1,164 @@
+#include <WinSock2.h>
+#include <stdio.h>
+#pragma comment(lib, "ws2_32.lib")
+
+//声明线程过程函数
+DWORD WINAPI ThreadProc(LPVOID lpThreadParameter);
+void recvFile(SOCKET s, char *fileName);
+
+int main()
+{
+	int err;						//存储错误信息
+	int len;						//存储长度
+	DWORD Tid;						//存储线程ID
+
+	char cSendBuf[1024]={0};					//存放发送消息	
+	char cRecvBuf[1024]={0};					//存放接收消息
+	char cCmdStr[1024]={0};					//存放cmd命令
+	char *ip;						//存放客户端ip
+
+	WORD wVersion;					//存放winsock的版本
+	WSADATA wData;					
+
+	SOCKET sockServer;				//用于标识服务端套接字
+	SOCKET sockClient;				//用于标识客户端套接字
+	SOCKADDR_IN addrServer;			//用于标识服务端的网络地址	
+	SOCKADDR_IN addrClient; 		//用于标识客户端的网络地址
+
+	wVersion = MAKEWORD(2, 2);
+	
+	//初始化socket
+	err = WSAStartup(wVersion, &wData);
+
+	if (err != 0)
+	{
+		printf("初始化winsock失败！");
+		exit(1);
+	}
+
+	if ((LOBYTE(wData.wVersion) != 2) || (HIBYTE(wData.wVersion) != 2))
+	{
+		printf("程序错误！");
+		WSACleanup();
+		exit(1);
+	}
+
+	//创建服务端套接字
+	sockServer = socket(AF_INET, SOCK_STREAM, 0);
+
+	//给服务端套接字网络地址赋值
+	addrServer.sin_family = AF_INET;
+	addrServer.sin_port = htons(6000);
+	addrServer.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
+
+	len = sizeof(SOCKADDR);
+	
+	//绑定
+	bind(sockServer,(SOCKADDR *)&addrServer, len);
+
+	//启动监听
+	listen(sockServer, 5);
+	printf("服务器已启动。\n监听中....");
+
+	//等待客户链接
+	sockClient = accept(sockServer, (SOCKADDR *)&addrClient, &len);
+	
+	//转换客户端的ip到主机形式
+	ip = inet_ntoa(addrClient.sin_addr);
+
+	//提醒服务端客户端一连入
+	printf("\n%s已连到服务器可以通话-_-\n",ip);
+	
+	//提醒客户端一链接服务器
+	send(sockClient, "已连到服务器可以通话-_-\n",strlen("已连到服务器可以通话-_-\n") + 1, 0);
+	
+	while(1)
+	{
+		printf(">>");
+		scanf("%s", cCmdStr);
+		send(sockClient, cCmdStr,strlen(cCmdStr) + 1, 0);
+		if (strcmp(cCmdStr, "getfile") == 0)
+		{
+			//创建数据接收线程
+			CreateThread(
+					NULL,
+					0,
+					ThreadProc,
+					NULL,
+					0,
+					&Tid);
+		}
+		else if (strcmp(cCmdStr, "exit") == 0)
+		{
+			break;
+		}
+		recv(sockServer, cRecvBuf, 100, 0);
+		printf("%s:%s\n", ip, cRecvBuf);
+	}
+	closesocket(sockClient);
+	WSACleanup();
+	return 0;
+}
+
+DWORD WINAPI ThreadProc(LPVOID lpThreadParameter)
+{
+	int len;
+
+	SOCKET sockDataServer;			//用于标识服务端套接字
+	SOCKET sockClient;				//用于标识客户端套接字
+	SOCKADDR_IN addrServer;			//用于标识服务端的网络地址	
+	SOCKADDR_IN addrClient; 		//用于标识客户端的网络地址
+
+	//创建服务端套接字
+	sockDataServer = socket(AF_INET, SOCK_STREAM, 0);
+
+	//给服务端套接字网络地址赋值
+	addrServer.sin_family = AF_INET;
+	addrServer.sin_port = htons(6008);
+	addrServer.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
+
+	len = sizeof(SOCKADDR);
+	
+	//绑定
+	bind(sockDataServer,(SOCKADDR *)&addrServer, len);
+
+	//启动监听
+	listen(sockDataServer, 5);
+	while(1)
+	{
+		//等待客户端链接
+		sockClient = accept(sockDataServer, (SOCKADDR *)&addrClient, &len);
+		printf("准备接收文件！\n");
+		recvFile(sockClient, "E:\\2.txt");
+		printf("接收文件成功");
+	}
+	return 0;
+}
+void recvFile(SOCKET s, char *fileName)
+{
+	char cRecvBuf[1024] = {0};		//用作缓冲区
+	HANDLE hFile;					//定义文件句柄
+	DWORD count = 0;						
+
+	//在服务端创建文件
+	hFile = CreateFile(
+		fileName,
+		GENERIC_WRITE,
+		0,
+		NULL,
+		CREATE_NEW,
+		FILE_ATTRIBUTE_NORMAL,
+		NULL);
+	//接收数据
+	while(1)
+	{
+		ZeroMemory(cRecvBuf, 1024);
+		recv(s, cRecvBuf, 1024, 0);
+		if( strcmp(cRecvBuf,"%%over%%") == 0)
+		{
+			CloseHandle(hFile);
+			break;
+		}
+		WriteFile(hFile, cRecvBuf, sizeof(cRecvBuf), &count, 0);
+	}
+}
