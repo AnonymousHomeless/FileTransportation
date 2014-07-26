@@ -1,0 +1,146 @@
+#include <WinSock2.h>
+#include <stdio.h>
+#pragma comment(lib, "ws2_32.lib")
+#define MSG_LEN 1024
+
+//函数声明
+DWORD WINAPI ThreadProc (LPVOID lpThreadParameter);
+void sendFile(SOCKET, char *);
+
+int main()
+{
+	int err;					//存储错误信息
+	int len;
+	DWORD Tid;					//存储线程号
+	
+	char cSendBuf[1024];		//存放发送的消息
+	char cRecvBuf[1024];		//存放接收的消息
+	
+	WORD wVersion;					//存放winsock的版本
+	WSADATA wData;					
+
+	SOCKET sockClient;			//定义客户端套接字
+	SOCKADDR_IN addrServer;		//定义服务端网络地址
+
+	wVersion = MAKEWORD(2, 2);
+	err = WSAStartup(wVersion, &wData);
+
+	if (err != 0)
+	{
+		printf("初始化winsock失败！\n");
+		exit(1);
+	}
+
+	if ((LOBYTE(wData.wVersion) != 2) || (HIBYTE(wData.wVersion) != 2))
+	{
+		printf("程序错误！\n");
+		WSACleanup();
+		exit(1);
+	}
+
+	//创建客户端套接字
+	sockClient = socket(AF_INET, SOCK_STREAM, 0);
+
+	len = sizeof(SOCKADDR);
+
+	//给服务端套接字网络地址赋值
+	addrServer.sin_family = AF_INET;
+	addrServer.sin_port = htons(6000);
+	addrServer.sin_addr.S_un.S_addr = inet_addr("10.28.20.133");
+	
+	//链接服务端
+	connect(sockClient, (SOCKADDR *)&addrServer, len);
+
+	while(1)
+	{
+		//提醒客户已连入服务端和显示收到的命令
+		recv(sockClient, cRecvBuf, 100, 0);
+		printf("Server:%s",cRecvBuf);
+
+		if (strcmp(cRecvBuf,"getfile") == 0)
+		{
+			//创建数据发送线程
+			CreateThread(
+					NULL,
+					0,
+					ThreadProc,
+					NULL,
+					0,
+					&Tid);
+		}
+		else if(strcmp(cRecvBuf, "exit") == 0)
+		{
+			break;
+		}
+	}
+	closesocket(sockClient);
+	WSACleanup();
+}
+
+
+DWORD WINAPI ThreadProc (LPVOID lpThreadParameter)
+{
+	SOCKET sockDataClient;			//定义客户端套接字
+	SOCKADDR_IN addrDataServer;		//定义服务端网络地址
+
+	printf("进入发送文件进程，准备发送文件....\n");
+	//创建客户端套接字
+	sockDataClient = socket(AF_INET, SOCK_STREAM, 0);
+
+	//给服务端套接字网络地址赋值
+	addrDataServer.sin_family = AF_INET;
+	addrDataServer.sin_port = htons(6008);
+	addrDataServer.sin_addr.S_un.S_addr = inet_addr("10.28.20.133");
+	
+	//链接服务端
+	connect(sockDataClient, (SOCKADDR *)&addrDataServer, sizeof(SOCKADDR));
+	
+	printf("开始发送文件\n");
+	sendFile(sockDataClient, "E:\\1.txt");
+	printf("发送文件完毕-_-\n");
+	closesocket(sockDataClient);
+}
+
+void sendFile(SOCKET s, char *filename)
+{
+	HANDLE hFile;			//文件句柄
+	char cBuf[1024];		//缓存区
+	DWORD len; 
+
+	//打开文件
+    hFile = CreateFile(
+        filename,               // 文件名
+        GENERIC_READ,           // 读取权限
+        0,                      // 阻止其他进程访问
+        NULL,                   // 子进程不可继承本句柄
+        OPEN_EXISTING,          // 仅当该文件或设备存在时，打开它
+        FILE_ATTRIBUTE_NORMAL,  // 普通文件
+        NULL);                  // 不适用模板文件
+	
+	if (hFile == INVALID_HANDLE_VALUE)
+    {
+        printf("文件无法打开\n");
+        exit(1);
+    }
+
+	while(1)
+	{
+		ZeroMemory(cBuf, sizeof(cBuf));
+		ReadFile(hFile, cBuf, 1024, &len, NULL); 
+		if(len < 1024)
+		{
+			if(len > 0)
+			{
+				send(s, cBuf, len, 0);
+			}
+			break;
+		}
+		send(s, cBuf, len, 0);
+
+	}
+	 // 发送完毕标识
+    send(s, "%%over%%", sizeof("%%over%%") + 1, 0);
+    CloseHandle( hFile );
+}
+ 
+  
